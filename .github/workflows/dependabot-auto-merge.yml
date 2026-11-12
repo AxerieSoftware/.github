@@ -1,0 +1,57 @@
+# Merges Dependabot's patch and minor bumps once the PR's other checks pass. Major bumps stay open
+# for review. Private repos on the Free plan can't have branch protection, so GitHub won't hold a
+# merge for CI on its own; this waits for the other checks itself.
+#
+# Call it from a workflow named "Dependabot auto-merge" (the name this job skips when it waits):
+#
+#   name: Dependabot auto-merge
+#   on: pull_request
+#   permissions:
+#     contents: write
+#     pull-requests: write
+#   jobs:
+#     auto-merge:
+#       uses: AxerieSoftware/.github/.github/workflows/dependabot-auto-merge.yml@<sha> # <tag>
+name: Dependabot auto-merge
+
+on:
+  workflow_call:
+    inputs:
+      caller-workflow:
+        description: Name of the calling workflow, left out when waiting for the PR's other checks.
+        type: string
+        default: Dependabot auto-merge
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Read the update type
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Wait for the other checks, then merge
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SELF: ${{ inputs.caller-workflow }}
+        run: |
+          # Give the other workflows a moment to register their checks.
+          sleep 30
+          others='[.[] | select(.workflow != env.SELF)]'
+          while [ "$(gh pr checks "$PR_URL" --json workflow,bucket --jq "$others | map(select(.bucket == \"pending\")) | length" || true)" != 0 ]; do
+            sleep 30
+          done
+          failed=$(gh pr checks "$PR_URL" --json workflow,bucket --jq "$others | map(select(.bucket == \"fail\" or .bucket == \"cancel\")) | length" || true)
+          if [ "$failed" != 0 ]; then
+            echo "Other checks failed; leaving the PR open."
+            exit 1
+          fi
+          gh pr merge --squash "$PR_URL"

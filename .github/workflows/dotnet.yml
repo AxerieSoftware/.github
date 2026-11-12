@@ -1,0 +1,74 @@
+# Builds and tests a .NET repo, and checks its generated config still matches .config/dotnet.json.
+#
+#   jobs:
+#     dotnet:
+#       uses: AxerieSoftware/.github/.github/workflows/dotnet.yml@<sha> # <tag>
+#       with:
+#         working-directory: server   # where global.json and the solution live; default the root
+name: .NET
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Folder holding global.json and the solution.
+        type: string
+        default: .
+      test:
+        description: Run dotnet test after the build.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  config:
+    name: Config matches .config/dotnet.json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      # The repo's own script pins the wizard and keeps package versions; CI runs the same code.
+      - name: Compare generated files to .config/dotnet.json
+        run: sh eng/render-dotnet-config.sh --check
+
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: ${{ inputs.working-directory }}/global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      # CI=true makes the generated props set ContinuousIntegrationBuild, so warnings fail here.
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        if: inputs.test
+        run: dotnet test --no-build --configuration Release
