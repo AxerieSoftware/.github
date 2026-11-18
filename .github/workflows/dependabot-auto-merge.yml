@@ -2,29 +2,31 @@
 # for review. Private repos on the Free plan can't have branch protection, so GitHub won't hold a
 # merge for CI on its own; this waits for the other checks itself.
 #
-# Call it from a workflow named "Dependabot auto-merge" (the name this job skips when it waits):
+# Call it from every repo. The read permissions matter in private repos: without them the token
+# can't see the PR's checks.
 #
 #   name: Dependabot auto-merge
 #   on: pull_request
 #   permissions:
 #     contents: write
 #     pull-requests: write
+#     checks: read
+#     statuses: read
+#     actions: read
 #   jobs:
 #     auto-merge:
-#       uses: AxerieSoftware/.github/.github/workflows/dependabot-auto-merge.yml@<sha> # <tag>
+#       uses: AxerieSoftware/.github/.github/workflows/dependabot-auto-merge.yml@main
 name: Dependabot auto-merge
 
 on:
   workflow_call:
-    inputs:
-      caller-workflow:
-        description: Name of the calling workflow, left out when waiting for the PR's other checks.
-        type: string
-        default: Dependabot auto-merge
 
 permissions:
   contents: write
   pull-requests: write
+  checks: read
+  statuses: read
+  actions: read
 
 jobs:
   auto-merge:
@@ -41,15 +43,22 @@ jobs:
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SELF: ${{ inputs.caller-workflow }}
+          SELF: /actions/runs/${{ github.run_id }}/
         run: |
+          set -euo pipefail
+          # This run's own check links to this run; every other check is one to wait for.
+          others='[.[] | select(.link // "" | contains(env.SELF) | not)]'
+          # gh exits 8 while checks are pending; any other failure stops the job instead of waiting forever.
+          count() { gh pr checks "$PR_URL" --json link,bucket --jq "$others | map(select($1)) | length" || [ $? = 8 ]; }
+
           # Give the other workflows a moment to register their checks.
           sleep 30
-          others='[.[] | select(.workflow != env.SELF)]'
-          while [ "$(gh pr checks "$PR_URL" --json workflow,bucket --jq "$others | map(select(.bucket == \"pending\")) | length" || true)" != 0 ]; do
+          while pending=$(count '.bucket == "pending"') && [ "$pending" != 0 ]; do
             sleep 30
           done
-          failed=$(gh pr checks "$PR_URL" --json workflow,bucket --jq "$others | map(select(.bucket == \"fail\" or .bucket == \"cancel\")) | length" || true)
+          [ "$pending" = 0 ]
+
+          failed=$(count '.bucket == "fail" or .bucket == "cancel"')
           if [ "$failed" != 0 ]; then
             echo "Other checks failed; leaving the PR open."
             exit 1

@@ -5,6 +5,7 @@
 #       uses: AxerieSoftware/.github/.github/workflows/dotnet.yml@<sha> # <tag>
 #       with:
 #         working-directory: server   # where global.json and the solution live; default the root
+#         check-config: false          # for a repo without .config/dotnet.json
 name: .NET
 
 on:
@@ -18,6 +19,10 @@ on:
         description: Run dotnet test after the build.
         type: boolean
         default: true
+      check-config:
+        description: Check the generated config against .config/dotnet.json (needs eng/render-dotnet-config.sh).
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -29,6 +34,7 @@ env:
 jobs:
   config:
     name: Config matches .config/dotnet.json
+    if: inputs.check-config
     runs-on: ubuntu-latest
     steps:
       - name: Check out repo
