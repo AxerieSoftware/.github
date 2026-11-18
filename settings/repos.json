@@ -29,7 +29,9 @@
 		"reddit-backup": {},
 		"kylieserie-hub": {},
 		"agent-config": {},
-		"axeriesoftware.github.io": {},
+		"axeriesoftware.github.io": {
+			"allow_auto_merge": true
+		},
 		".github": {}
 	}
 }
