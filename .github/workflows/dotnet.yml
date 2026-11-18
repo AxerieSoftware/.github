@@ -6,6 +6,7 @@
 #       with:
 #         working-directory: server   # where global.json and the solution live; default the root
 #         check-config: false          # for a repo without .config/dotnet.json
+#         apt-packages: libvips42t64   # native libraries the tests load
 name: .NET
 
 on:
@@ -23,6 +24,10 @@ on:
         description: Check the generated config against .config/dotnet.json (needs eng/render-dotnet-config.sh).
         type: boolean
         default: true
+      apt-packages:
+        description: Ubuntu packages the tests need, space-separated, such as native libraries.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -67,6 +72,12 @@ jobs:
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: ${{ inputs.working-directory }}/global.json
+
+      - name: Install packages
+        if: inputs.apt-packages != ''
+        env:
+          PACKAGES: ${{ inputs.apt-packages }}
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends $PACKAGES
 
       - name: Restore
         run: dotnet restore
